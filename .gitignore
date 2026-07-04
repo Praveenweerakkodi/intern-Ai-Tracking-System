@@ -1,0 +1,8 @@
+node_modules
+.env
+.env.local
+.env.prod.local
+.turbo
+dist
+.vercel
+package-lock.json
