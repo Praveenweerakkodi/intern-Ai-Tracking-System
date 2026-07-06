@@ -16,12 +16,38 @@ export class ApplicationsService {
     cover_letter?: string;
     priority?: number;
     status?: ApplicationStatus;
+    job_attributes?: {
+      title: string;
+      company?: string;
+      description: string;
+    };
   }) {
+    let jobId = body.job_id;
+
+    if (body.job_attributes) {
+      const { data: jobData, error: jobError } = await this.supabase
+        .from('jobs')
+        .insert({
+          user_id: userId,
+          title: body.job_attributes.title,
+          company: body.job_attributes.company,
+          description: body.job_attributes.description,
+        })
+        .select()
+        .single();
+
+      if (jobError) throw new BadRequestException(`Failed to create associated job: ${jobError.message}`);
+      jobId = jobData.id;
+    }
+
+    const { job_attributes, ...insertData } = body;
+
     const { data, error } = await this.supabase
       .from('applications')
       .insert({
         user_id: userId,
-        ...body,
+        ...insertData,
+        job_id: jobId,
         status: body.status || 'applied',
         applied_at: body.status === 'applied' ? new Date().toISOString() : null,
       })

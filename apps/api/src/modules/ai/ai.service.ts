@@ -14,37 +14,71 @@ export class AiService {
     });
   }
 
+  // Primary model — extremely capable and stable
+  private readonly PRIMARY_MODEL = 'gemini-3.5-flash';
+  // Fallback model if primary hits quota/errors
+  private readonly FALLBACK_MODEL = 'gemini-flash-lite-latest';
+
+  private isQuotaError(error: Error): boolean {
+    const msg = error.message || '';
+    return msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota');
+  }
+
+  private async retryWithBackoff<T>(
+    fn: (model: string) => Promise<T>,
+    label: string,
+  ): Promise<T> {
+    const models = [this.PRIMARY_MODEL, this.FALLBACK_MODEL];
+    let lastError: Error | null = null;
+
+    for (const model of models) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          this.logger.log(`[${label}] Attempt ${attempt} with ${model}`);
+          return await fn(model);
+        } catch (error) {
+          lastError = error as Error;
+          this.logger.warn(`[${label}] ${model} attempt ${attempt} failed: ${lastError.message}`);
+
+          if (this.isQuotaError(lastError)) {
+            if (attempt === 1) {
+              // Wait 65s on quota errors before retrying the same model
+              this.logger.warn(`[${label}] Quota exceeded — waiting 65s before retry...`);
+              await this.delay(65_000);
+            }
+            // After 2 attempts on same model, try fallback
+          } else {
+            // Non-quota error: short backoff then retry
+            if (attempt < 2) await this.delay(2000 * attempt);
+          }
+        }
+      }
+    }
+    throw new Error(`${label} failed after all attempts: ${lastError?.message}`);
+  }
+
   // ---- ATS Analysis (structured JSON output) ----
   async analyzeCV(request: AnalyzeRequest): Promise<AnalyzeResponse> {
     const startTime = Date.now();
-    const prompt = this.buildAnalysisPrompt(request);
 
-    let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const response = await this.ai.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.3,
-            maxOutputTokens: 8192,
-          },
-        });
-        const text = response.text;
-        if (!text) throw new Error('Empty response from Gemini');
-        const parsed = JSON.parse(text) as AnalyzeResponse;
-        this.logger.log(
-          `ATS analysis completed in ${Date.now() - startTime}ms (attempt ${attempt})`,
-        );
-        return parsed;
-      } catch (error) {
-        lastError = error as Error;
-        this.logger.error(`Attempt ${attempt} failed: ${(error as Error).message}`, (error as Error).stack);
-        if (attempt < 3) await this.delay(1000 * attempt);
-      }
-    }
-    throw new Error(`AI analysis failed after 3 attempts: ${lastError?.message}`);
+    const result = await this.retryWithBackoff(async (model) => {
+      const prompt = this.buildAnalysisPrompt(request);
+      const response = await this.ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.3,
+          maxOutputTokens: 8192,
+        },
+      });
+      const text = response.text;
+      if (!text) throw new Error('Empty response from Gemini');
+      return JSON.parse(text) as AnalyzeResponse;
+    }, 'analyzeCV');
+
+    this.logger.log(`ATS analysis completed in ${Date.now() - startTime}ms`);
+    return result;
   }
 
   // ---- CV Improvement (streaming) ----
@@ -56,9 +90,9 @@ export class AiService {
     const prompt = this.buildCVImprovePrompt(cvText, jobDescription, analysis);
 
     const stream = await this.ai.models.generateContentStream({
-      model: 'gemini-2.0-flash',
+      model: this.PRIMARY_MODEL,
       contents: prompt,
-      config: { temperature: 0.4, maxOutputTokens: 8192 },
+      config: { temperature: 0.4, maxOutputTokens: 4096 },
     });
 
     for await (const chunk of stream) {
@@ -96,9 +130,9 @@ Keep tone empathetic and constructive. Use markdown formatting.
     `.trim();
 
     const response = await this.ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: this.PRIMARY_MODEL,
       contents: prompt,
-      config: { temperature: 0.7, maxOutputTokens: 4096 },
+      config: { temperature: 0.7, maxOutputTokens: 2048 },
     });
     return response.text ?? '';
   }
@@ -126,9 +160,9 @@ Return ONLY valid JSON array.
     `.trim();
 
     const response = await this.ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: this.PRIMARY_MODEL,
       contents: prompt,
-      config: { responseMimeType: 'application/json', temperature: 0.5 },
+      config: { responseMimeType: 'application/json', temperature: 0.5, maxOutputTokens: 2048 },
     });
     return JSON.parse(response.text ?? '[]');
   }
@@ -139,12 +173,12 @@ Return ONLY valid JSON array.
     systemPrompt: string,
   ): AsyncGenerator<string> {
     const stream = await this.ai.models.generateContentStream({
-      model: 'gemini-2.0-flash',
+      model: this.PRIMARY_MODEL,
       contents: messages,
       config: {
         systemInstruction: systemPrompt,
         temperature: 0.7,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 2048,
       },
     });
 
@@ -156,28 +190,32 @@ Return ONLY valid JSON array.
 
   // ---- Private: Prompt Builders ----
   private buildAnalysisPrompt(req: AnalyzeRequest): string {
+    // Truncate to stay within free-tier token limits
+    const cvText = (req.cv_text || '').substring(0, 3000);
+    const jobDesc = (req.job_description || '').substring(0, 2000);
+
     return `
-You are an expert ATS analyst and career coach. Analyze this CV against the job description.
+You are an expert ATS analyst. Analyze this CV against the job description.
 
 CV TEXT:
-${req.cv_text}
+${cvText}
 
 JOB DESCRIPTION:
-${req.job_description}
+${jobDesc}
 
 JOB TITLE: ${req.job_title || 'Not specified'}
 COMPANY: ${req.company || 'Not specified'}
 
-Return ONLY valid JSON with this exact structure:
+Return ONLY valid JSON:
 {
   "ats_score": <0-100>,
   "match_score": <0-100>,
-  "confidence_score": <0-100, probability of interview callback>,
+  "confidence_score": <0-100>,
   "missing_skills": [{"name": string, "category": string, "importance": "required"|"nice_to_have", "frequency": number}],
   "matched_skills": [{"name": string, "category": string}],
   "weak_areas": [{"section": string, "issue": string, "suggestion": string}],
   "strengths": [string],
-  "suggestions": "detailed paragraph with top 5 actionable improvements",
+  "suggestions": "top 3-5 actionable improvements",
   "keyword_density": {"keyword": count},
   "interview_questions": [{"question": string, "type": "behavioral"|"technical"|"situational", "hint": string}]
 }
@@ -189,26 +227,29 @@ Return ONLY valid JSON with this exact structure:
     jobDescription: string,
     analysis: AnalyzeResponse,
   ): string {
+    // Truncate inputs to stay within free-tier token limits
+    const truncatedCV = (cvText || '').substring(0, 2500);
+    const truncatedJob = (jobDescription || '').substring(0, 1500);
+    const missingSkills = (analysis.missing_skills || []).slice(0, 5);
+    const weakAreas = (analysis.weak_areas || []).slice(0, 3);
+
     return `
-You are an expert CV writer for tech internship applications.
-Rewrite this CV to maximize ATS score and appeal for the target role.
+You are an expert CV writer. Rewrite this CV to maximize ATS score for the target role.
 
 ORIGINAL CV:
-${cvText}
+${truncatedCV}
 
 JOB REQUIREMENTS:
-${jobDescription.substring(0, 2000)}
+${truncatedJob}
 
-IDENTIFIED GAPS: ${JSON.stringify(analysis.missing_skills)}
-WEAK AREAS: ${JSON.stringify(analysis.weak_areas)}
+GAPS TO ADDRESS: ${JSON.stringify(missingSkills)}
+WEAK AREAS: ${JSON.stringify(weakAreas)}
 
 Rules:
-1. Add missing keywords naturally — no keyword stuffing
-2. Start every bullet with a strong action verb (Developed, Built, Optimized, Led...)
+1. Add missing keywords naturally
+2. Start bullets with action verbs (Developed, Built, Optimized...)
 3. Add quantifiable metrics where realistic
-4. Keep authentic — improve presentation, don't invent experiences
-5. Add a compelling professional summary targeting this role
-6. Mark improved sections with [IMPROVED] prefix
+4. Mark improved sections with [IMPROVED] prefix
 
 Write the complete improved CV:
     `.trim();

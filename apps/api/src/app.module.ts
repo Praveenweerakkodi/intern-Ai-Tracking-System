@@ -7,6 +7,7 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { AiModule } from './modules/ai/ai.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { CoachModule } from './modules/coach/coach.module';
 import { SupabaseModule } from './supabase/supabase.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { SupabaseModule } from './supabase/supabase.module';
     AiModule,
     ApplicationsModule,
     AnalyticsModule,
+    CoachModule,
   ],
 })
 export class AppModule {}
