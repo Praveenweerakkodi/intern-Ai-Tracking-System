@@ -9,18 +9,18 @@
     "target": "ES2021",
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
     "baseUrl": "./",
     "ignoreDeprecations": "5.0",
+    "skipLibCheck": true,
     "paths": {
       "@internai/shared": ["../../packages/shared/src"]
     },
     "incremental": true,
-    "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false
-  }
+  },
+  "include": ["src/**/*"]
 }
