@@ -13,11 +13,11 @@ import { AiService } from './ai.service';
 import { AnalyzeRequest } from '@internai/shared';
 
 @WebSocketGateway({
-  cors: { origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true },
+  cors: { origin: process.env.FRONTEND_URL || 'https://nexuscareerai.vercel.app', credentials: true },
   namespace: '/ai',
 })
 export class AiGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() server: Server;
+  @WebSocketServer() server!: Server;
   private readonly logger = new Logger(AiGateway.name);
 
   constructor(private readonly aiService: AiService) {}
