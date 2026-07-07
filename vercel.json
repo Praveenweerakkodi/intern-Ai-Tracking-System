@@ -1,0 +1,15 @@
+{
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "env": {
+    "TURBO_TEAM": "@$VERCEL_TEAM_ID",
+    "TURBO_SLUG": "$VERCEL_GIT_REPO_SLUG",
+    "TURBO_TOKEN": "$VERCEL_TOKEN"
+  },
+  "remoteCache": {
+    "teamId": "$VERCEL_TEAM_ID",
+    "token": "$VERCEL_TOKEN"
+  }
+}
+
