@@ -28,7 +28,7 @@ async function bootstrap() {
 
   // Swagger docs
   const config = new DocumentBuilder()
-    .setTitle('InternAI Tracker API')
+    .setTitle('Nexus Career Tracker API')
     .setDescription('AI-powered internship application tracker backend')
     .setVersion('1.0')
     .addBearerAuth()
@@ -38,7 +38,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  console.log(`🚀 InternAI API running on http://localhost:${port}`);
+  console.log(`🚀 Nexus Career API running on http://localhost:${port}`);
   console.log(`📚 Swagger docs at http://localhost:${port}/docs`);
 }
 
