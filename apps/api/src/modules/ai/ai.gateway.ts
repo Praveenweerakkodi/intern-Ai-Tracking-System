@@ -12,8 +12,25 @@ import { Logger } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { AnalyzeRequest } from '@internai/shared';
 
+function getAllowedOrigins(): string[] {
+  const configuredOrigins = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://nexuscareerai.vercel.app')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return [
+    ...configuredOrigins,
+    'https://intern-ai-tracking-system-api.vercel.app',
+    'https://*.vercel.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+  ];
+}
+
 @WebSocketGateway({
-  cors: { origin: process.env.FRONTEND_URL || 'https://nexuscareerai.vercel.app', credentials: true },
+  cors: { origin: getAllowedOrigins(), credentials: true },
   namespace: '/ai',
 })
 export class AiGateway implements OnGatewayConnection, OnGatewayDisconnect {
