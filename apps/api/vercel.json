@@ -1,21 +1,16 @@
 {
   "version": 2,
+  "buildCommand": "npm run build",
   "builds": [
     {
-      "src": "dist/main.js",
+      "src": "dist/apps/api/src/main.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "methods": ["OPTIONS"],
-      "dest": "dist/main.js",
-      "continue": true
-    },
-    {
-      "src": "/(.*)",
-      "dest": "dist/main.js"
+      "dest": "dist/apps/api/src/main.js"
     }
   ]
 }
