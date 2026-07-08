@@ -39,36 +39,29 @@ let cachedHandler: any;
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({
-    origin: (origin, callback) => {
-      callback(null, !origin || isOriginAllowed(origin));
-    },
-    credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    optionsSuccessStatus: 204,
-  });
-
+  // Register manual CORS middleware first
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers.origin as string | undefined;
 
     if (!origin || isOriginAllowed(origin)) {
       res.header('Access-Control-Allow-Origin', origin || '*');
       res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+      res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With');
       res.header('Vary', 'Origin');
 
       if (req.method === 'OPTIONS') {
-        res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-        res.header(
-          'Access-Control-Allow-Headers',
-          req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With',
-        );
-        res.sendStatus(204);
-        return;
+        return res.sendStatus(204);
       }
     }
-
     next();
+  });
+
+  app.enableCors({
+    origin: (origin, callback) => {
+      callback(null, !origin || isOriginAllowed(origin));
+    },
+    credentials: true,
   });
 
   app.useGlobalPipes(
@@ -91,25 +84,21 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
-  if (process.env.VERCEL) {
-    await app.init();
-    const expressApp = app.getHttpAdapter().getInstance();
-    return serverless(expressApp);
-  }
-
-  await app.listen(process.env.PORT || 3001);
+  await app.init();
+  return app;
 }
 
 export default async function handler(req: any, res: any) {
   if (!cachedHandler) {
-    cachedHandler = await bootstrap();
+    const app = await bootstrap();
+    cachedHandler = serverless(app.getHttpAdapter().getInstance());
   }
 
   return cachedHandler(req, res);
 }
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  bootstrap().catch((error) => {
+  bootstrap().then((app) => app.listen(process.env.PORT || 3001)).catch((error) => {
     console.error('Failed to start API server', error);
     process.exit(1);
   });
