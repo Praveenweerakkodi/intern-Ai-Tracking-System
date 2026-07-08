@@ -5,65 +5,94 @@ import { AppModule } from './app.module';
 import * as express from 'express';
 import serverless from 'serverless-http';
 
-function getAllowedOrigins(): string[] {
-  const configuredOrigins = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://nexuscareerai.vercel.app')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
-  return [
-    ...configuredOrigins,
-    'https://intern-ai-tracking-system-api.vercel.app',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:3001',
-    'http://127.0.0.1:3001',
-  ];
-}
+// ─── Allowed origins ────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS_STATIC = [
+  'https://nexuscareerai.vercel.app',
+  'https://intern-ai-tracking-system-api.vercel.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
+];
 
 function isOriginAllowed(origin: string | undefined): boolean {
-  if (!origin) {
+  if (!origin) return true;
+
+  // Check env-configured origins first
+  const envOrigins = (process.env.FRONTEND_URL || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  if ([...ALLOWED_ORIGINS_STATIC, ...envOrigins].includes(origin)) {
     return true;
   }
 
-  const allowedOrigins = new Set(getAllowedOrigins());
-  if (allowedOrigins.has(origin)) {
-    return true;
-  }
-
-  return /https:\/\/([a-z0-9-]+)\.vercel\.app$/i.test(origin) || /http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+  // Allow any *.vercel.app or localhost
+  return (
+    /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin) ||
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
+  );
 }
 
-let cachedHandler: any;
+// ─── CORS middleware (pure Express — runs before NestJS routing) ─────────────
+function corsMiddleware(req: any, res: any, next: any) {
+  const origin = req.headers.origin as string | undefined;
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Always set CORS headers for allowed origins
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    );
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      (req.headers['access-control-request-headers'] as string) ||
+        'Content-Type,Authorization,X-Requested-With',
+    );
+  }
 
-  // Register manual CORS middleware first
-  app.use((req: any, res: any, next: any) => {
-    const origin = req.headers.origin as string | undefined;
+  // Short-circuit OPTIONS preflight — must NOT reach router or auth guards
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
 
-    if (!origin || isOriginAllowed(origin)) {
-      res.header('Access-Control-Allow-Origin', origin || '*');
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-      res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With');
-      res.header('Vary', 'Origin');
+  next();
+}
 
-      if (req.method === 'OPTIONS') {
-        return res.sendStatus(204);
-      }
-    }
-    next();
+// ─── Singleton initialization (Promise-based to avoid race conditions) ───────
+// On Vercel, multiple concurrent requests arrive before cachedHandler is set.
+// Using a single Promise ensures bootstrap() runs exactly once even if many
+// requests arrive simultaneously during a cold start.
+let initPromise: Promise<(req: any, res: any) => void> | null = null;
+
+function getHandler(): Promise<(req: any, res: any) => void> {
+  if (!initPromise) {
+    initPromise = bootstrap();
+  }
+  return initPromise;
+}
+
+async function bootstrap(): Promise<(req: any, res: any) => void> {
+  const app = await NestFactory.create(AppModule, {
+    // Disable NestJS body parser so we control it ourselves after CORS
+    bodyParser: false,
+    logger: ['error', 'warn'],
   });
 
-  app.enableCors({
-    origin: (origin, callback) => {
-      callback(null, !origin || isOriginAllowed(origin));
-    },
-    credentials: true,
-  });
+  // ① CORS middleware — must be registered FIRST, before anything else
+  app.use(corsMiddleware);
 
+  // ② Body parsers — after CORS so OPTIONS never waits for body parsing
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+  // ③ Validation
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -72,9 +101,7 @@ async function bootstrap() {
     }),
   );
 
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ limit: '10mb', extended: true }));
-
+  // ④ Swagger docs
   const config = new DocumentBuilder()
     .setTitle('Nexus Career Tracker API')
     .setDescription('AI-powered internship application tracker backend')
@@ -85,21 +112,56 @@ async function bootstrap() {
   SwaggerModule.setup('docs', app, document);
 
   await app.init();
-  return app;
+
+  const expressApp = app.getHttpAdapter().getInstance();
+  return serverless(expressApp) as (req: any, res: any) => void;
 }
 
+// ─── Vercel serverless entry point ───────────────────────────────────────────
 export default async function handler(req: any, res: any) {
-  if (!cachedHandler) {
-    const app = await bootstrap();
-    cachedHandler = serverless(app.getHttpAdapter().getInstance());
+  // Handle OPTIONS at the edge immediately — before even waiting for bootstrap
+  // This ensures preflights never time out during cold starts
+  const origin = req.headers.origin as string | undefined;
+  if (req.method === 'OPTIONS' && isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      (req.headers['access-control-request-headers'] as string) ||
+        'Content-Type,Authorization,X-Requested-With',
+    );
+    res.writeHead(204);
+    res.end();
+    return;
   }
 
-  return cachedHandler(req, res);
+  const serverlessHandler = await getHandler();
+  return serverlessHandler(req, res);
 }
 
+// ─── Local dev entry point ────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  bootstrap().then((app) => app.listen(process.env.PORT || 3001)).catch((error) => {
-    console.error('Failed to start API server', error);
+  (async () => {
+    const app = await NestFactory.create(AppModule, { bodyParser: false });
+    app.use(corsMiddleware);
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ limit: '10mb', extended: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
+    );
+    const config = new DocumentBuilder()
+      .setTitle('Nexus Career Tracker API')
+      .setDescription('AI-powered internship application tracker backend')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+    await app.listen(process.env.PORT || 3001);
+    console.log(`API running on http://localhost:${process.env.PORT || 3001}`);
+  })().catch((err) => {
+    console.error('Failed to start API server', err);
     process.exit(1);
   });
 }

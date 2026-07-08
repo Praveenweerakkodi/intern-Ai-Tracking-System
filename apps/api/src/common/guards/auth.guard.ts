@@ -16,6 +16,14 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
+
+    // OPTIONS preflight requests must always pass — they carry no auth headers
+    // by design. The CORS middleware in main.ts handles them before routing,
+    // but if a preflight somehow reaches this guard, allow it through.
+    if (request.method === 'OPTIONS') {
+      return true;
+    }
+
     const authHeader = request.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
