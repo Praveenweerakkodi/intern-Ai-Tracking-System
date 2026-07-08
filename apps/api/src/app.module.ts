@@ -12,7 +12,13 @@ import { SupabaseModule } from './supabase/supabase.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '../../.env' }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // In production (Koyeb), env vars are injected by the platform.
+      // Locally, we load from ../../.env (monorepo root) or .env in this folder.
+      envFilePath: ['.env', '../../.env'],
+      ignoreEnvFile: process.env.NODE_ENV === 'production',
+    }),
     SupabaseModule,
     AuthModule,
     UsersModule,

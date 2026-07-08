@@ -13,7 +13,16 @@ import { AiService } from './ai.service';
 import { AnalyzeRequest } from '@internai/shared';
 
 @WebSocketGateway({
-  cors: { origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true },
+  cors: {
+    origin: (origin: string, callback: (err: Error | null, allow?: boolean) => void) => {
+      const frontendUrl = process.env.FRONTEND_URL;
+      if (!origin || origin === 'http://localhost:3000' || (frontendUrl && origin === frontendUrl) || (origin && origin.endsWith('.vercel.app'))) {
+        return callback(null, true);
+      }
+      return callback(new Error(`WS CORS: origin ${origin} not allowed`), false);
+    },
+    credentials: true,
+  },
   namespace: '/ai',
 })
 export class AiGateway implements OnGatewayConnection, OnGatewayDisconnect {

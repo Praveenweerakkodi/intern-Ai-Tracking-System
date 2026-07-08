@@ -10,6 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "express": "^4.18.2",
     "@google/genai": "^2.10.0",
     "@google/generative-ai": "^0.21.0",
     "@nestjs/common": "^10.0.0",
