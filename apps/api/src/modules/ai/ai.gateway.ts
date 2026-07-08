@@ -21,7 +21,6 @@ function getAllowedOrigins(): string[] {
   return [
     ...configuredOrigins,
     'https://intern-ai-tracking-system-api.vercel.app',
-    'https://*.vercel.app',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:3001',
@@ -29,8 +28,26 @@ function getAllowedOrigins(): string[] {
   ];
 }
 
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) {
+    return true;
+  }
+
+  const allowedOrigins = new Set(getAllowedOrigins());
+  if (allowedOrigins.has(origin)) {
+    return true;
+  }
+
+  return /https:\/\/([a-z0-9-]+)\.vercel\.app$/i.test(origin) || /http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+}
+
 @WebSocketGateway({
-  cors: { origin: getAllowedOrigins(), credentials: true },
+  cors: {
+    origin: (origin, callback) => {
+      callback(null, !origin || isOriginAllowed(origin));
+    },
+    credentials: true,
+  },
   namespace: '/ai',
 })
 export class AiGateway implements OnGatewayConnection, OnGatewayDisconnect {
