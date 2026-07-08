@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { CvModule } from './modules/cv/cv.module';
@@ -23,5 +24,6 @@ import { SupabaseModule } from './supabase/supabase.module';
     AnalyticsModule,
     CoachModule,
   ],
+  controllers: [AppController],
 })
 export class AppModule {}
