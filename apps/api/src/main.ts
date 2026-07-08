@@ -46,13 +46,14 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    optionsSuccessStatus: 204,
   });
 
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers.origin as string | undefined;
 
-    if (origin && isOriginAllowed(origin)) {
-      res.header('Access-Control-Allow-Origin', origin);
+    if (!origin || isOriginAllowed(origin)) {
+      res.header('Access-Control-Allow-Origin', origin || '*');
       res.header('Access-Control-Allow-Credentials', 'true');
       res.header('Vary', 'Origin');
 
@@ -60,7 +61,7 @@ async function bootstrap() {
         res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
         res.header(
           'Access-Control-Allow-Headers',
-          req.headers['access-control-request-headers'] || 'Content-Type, Authorization',
+          req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With',
         );
         res.sendStatus(204);
         return;
