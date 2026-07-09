@@ -4,9 +4,11 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import * as express from 'express';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
+/**
+ * Shared app configuration helper.
+ * Called by both local bootstrap() and the Vercel serverless adapter.
+ */
+export async function configureApp(app: any) {
   // CORS — allow both local dev and production Vercel frontend
   const allowedOrigins = [
     'http://localhost:3000',
@@ -14,7 +16,7 @@ async function bootstrap() {
   ].filter(Boolean) as string[];
 
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       // Allow requests with no origin (mobile apps, curl, Postman, etc.)
       if (!origin) return callback(null, true);
       if (allowedOrigins.some((o) => origin === o || origin.endsWith('.vercel.app'))) {
@@ -40,7 +42,7 @@ async function bootstrap() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-  // Health check endpoint — required by Koyeb to verify the service is running
+  // Health check endpoint
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -55,6 +57,12 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
+}
+
+// Local dev / traditional server bootstrap
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await configureApp(app);
 
   const port = process.env.PORT || 3001;
   // Bind to 0.0.0.0 — required for Koyeb/Docker/containerized environments
