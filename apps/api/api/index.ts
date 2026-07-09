@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Vercel Serverless Adapter for NestJS
  *
  * Vercel runs this file as a serverless function for every incoming request.
