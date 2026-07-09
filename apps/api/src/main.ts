@@ -5,6 +5,66 @@ import { AppModule } from './app.module';
 import * as express from 'express';
 import serverless from 'serverless-http';
 
+// ─── Allowed origins ────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS_STATIC = [
+  'https://nexuscareerai.vercel.app',
+  'https://intern-ai-tracking-system-api.vercel.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
+];
+
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+
+  // Check env-configured origins first
+  const envOrigins = (process.env.FRONTEND_URL || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  if ([...ALLOWED_ORIGINS_STATIC, ...envOrigins].includes(origin)) {
+    return true;
+  }
+
+  // Allow any *.vercel.app or localhost
+  return (
+    /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin) ||
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
+  );
+}
+
+// ─── CORS middleware (pure Express — runs before NestJS routing) ─────────────
+export function corsMiddleware(req: any, res: any, next: any) {
+  const origin = req.headers.origin as string | undefined;
+
+  // Always set CORS headers for allowed origins
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    );
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      (req.headers['access-control-request-headers'] as string) ||
+        'Content-Type,Authorization,X-Requested-With',
+    );
+  }
+
+  // Short-circuit OPTIONS preflight — must NOT reach router or auth guards
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  next();
+}
+
 /**
  * Shared app configuration helper.
  * Called by both local bootstrap() and the Vercel serverless adapter.
@@ -45,10 +105,6 @@ export async function configureApp(app: any) {
       transform: true,
     }),
   );
-
-  // Increase payload size for PDF uploads
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
   // Health check endpoint
   const httpAdapter = app.getHttpAdapter();
