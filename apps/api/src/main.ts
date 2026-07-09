@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import * as express from 'express';
+import serverless from 'serverless-http';
 
 /**
  * Shared app configuration helper.
@@ -29,7 +30,14 @@ export async function configureApp(app: any) {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
-  // Global validation pipe
+  // ① CORS middleware — must be registered FIRST, before anything else
+  app.use(corsMiddleware);
+
+  // ② Body parsers — after CORS so OPTIONS never waits for body parsing
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+  // ③ Validation
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -71,4 +79,27 @@ async function bootstrap() {
   console.log(`📚 Swagger docs at http://localhost:${port}/docs`);
 }
 
-bootstrap();
+// ─── Local dev entry point ────────────────────────────────────────────────────
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  (async () => {
+    const app = await NestFactory.create(AppModule, { bodyParser: false });
+    app.use(corsMiddleware);
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ limit: '10mb', extended: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
+    );
+    const config = new DocumentBuilder()
+      .setTitle('Nexus Career Tracker API')
+      .setDescription('AI-powered internship application tracker backend')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+    await app.listen(process.env.PORT || 3001);
+    console.log(`API running on http://localhost:${process.env.PORT || 3001}`);
+  })().catch((err) => {
+    console.error('Failed to start API server', err);
+    process.exit(1);
+  });
+}
