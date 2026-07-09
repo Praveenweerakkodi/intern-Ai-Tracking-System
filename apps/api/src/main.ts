@@ -5,84 +5,29 @@ import { AppModule } from './app.module';
 import * as express from 'express';
 import serverless from 'serverless-http';
 
-// ─── Allowed origins ────────────────────────────────────────────────────────
-const ALLOWED_ORIGINS_STATIC = [
-  'https://nexuscareerai.vercel.app',
-  'https://intern-ai-tracking-system-api.vercel.app',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3001',
-];
+/**
+ * Shared app configuration helper.
+ * Called by both local bootstrap() and the Vercel serverless adapter.
+ */
+export async function configureApp(app: any) {
+  // CORS — allow both local dev and production Vercel frontend
+  const allowedOrigins = [
+    'http://localhost:3000',
+    process.env.FRONTEND_URL,
+  ].filter(Boolean) as string[];
 
-function isOriginAllowed(origin: string | undefined): boolean {
-  if (!origin) return true;
-
-  // Check env-configured origins first
-  const envOrigins = (process.env.FRONTEND_URL || '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
-
-  if ([...ALLOWED_ORIGINS_STATIC, ...envOrigins].includes(origin)) {
-    return true;
-  }
-
-  // Allow any *.vercel.app or localhost
-  return (
-    /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin) ||
-    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
-  );
-}
-
-// ─── CORS middleware (pure Express — runs before NestJS routing) ─────────────
-function corsMiddleware(req: any, res: any, next: any) {
-  const origin = req.headers.origin as string | undefined;
-
-  // Always set CORS headers for allowed origins
-  if (isOriginAllowed(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Vary', 'Origin');
-    res.setHeader(
-      'Access-Control-Allow-Methods',
-      'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    );
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      (req.headers['access-control-request-headers'] as string) ||
-        'Content-Type,Authorization,X-Requested-With',
-    );
-  }
-
-  // Short-circuit OPTIONS preflight — must NOT reach router or auth guards
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  next();
-}
-
-// ─── Singleton initialization (Promise-based to avoid race conditions) ───────
-// On Vercel, multiple concurrent requests arrive before cachedHandler is set.
-// Using a single Promise ensures bootstrap() runs exactly once even if many
-// requests arrive simultaneously during a cold start.
-let initPromise: Promise<(req: any, res: any) => void> | null = null;
-
-function getHandler(): Promise<(req: any, res: any) => void> {
-  if (!initPromise) {
-    initPromise = bootstrap();
-  }
-  return initPromise;
-}
-
-async function bootstrap(): Promise<(req: any, res: any) => void> {
-  const app = await NestFactory.create(AppModule, {
-    // Disable NestJS body parser so we control it ourselves after CORS
-    bodyParser: false,
-    logger: ['error', 'warn'],
+  app.enableCors({
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.some((o) => origin === o || origin.endsWith('.vercel.app'))) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS: origin ${origin} not allowed`), false);
+    },
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   // ① CORS middleware — must be registered FIRST, before anything else
@@ -101,7 +46,17 @@ async function bootstrap(): Promise<(req: any, res: any) => void> {
     }),
   );
 
-  // ④ Swagger docs
+  // Increase payload size for PDF uploads
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+  // Health check endpoint
+  const httpAdapter = app.getHttpAdapter();
+  httpAdapter.get('/health', (_req: any, res: any) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Swagger docs
   const config = new DocumentBuilder()
     .setTitle('Nexus Career Tracker API')
     .setDescription('AI-powered internship application tracker backend')
@@ -110,35 +65,18 @@ async function bootstrap(): Promise<(req: any, res: any) => void> {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
-
-  await app.init();
-
-  const expressApp = app.getHttpAdapter().getInstance();
-  return serverless(expressApp) as (req: any, res: any) => void;
 }
 
-// ─── Vercel serverless entry point ───────────────────────────────────────────
-export default async function handler(req: any, res: any) {
-  // Handle OPTIONS at the edge immediately — before even waiting for bootstrap
-  // This ensures preflights never time out during cold starts
-  const origin = req.headers.origin as string | undefined;
-  if (req.method === 'OPTIONS' && isOriginAllowed(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      (req.headers['access-control-request-headers'] as string) ||
-        'Content-Type,Authorization,X-Requested-With',
-    );
-    res.writeHead(204);
-    res.end();
-    return;
-  }
+// Local dev / traditional server bootstrap
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await configureApp(app);
 
-  const serverlessHandler = await getHandler();
-  return serverlessHandler(req, res);
+  const port = process.env.PORT || 3001;
+  // Bind to 0.0.0.0 — required for Koyeb/Docker/containerized environments
+  await app.listen(port, '0.0.0.0');
+  console.log(`🚀 Nexus Career API running on http://localhost:${port}`);
+  console.log(`📚 Swagger docs at http://localhost:${port}/docs`);
 }
 
 // ─── Local dev entry point ────────────────────────────────────────────────────

@@ -47,7 +47,8 @@ export function truncate(str: string, len = 60): string {
 }
 
 export function getApiUrl(path: string): string {
-  return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}${path}`;
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+  return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
 export function cleanErrorMessage(errorInput: any): string {
@@ -101,16 +102,29 @@ export async function apiFetch<T>(
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
-  
+
   if (!isFormData) {
     (headers as any)['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(getApiUrl(path), {
-    ...options,
-    headers,
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(cleanErrorMessage(json.error || json.message || 'Request failed'));
-  return (json.data ?? json) as T;
+  try {
+    const res = await fetch(getApiUrl(path), {
+      ...options,
+      headers,
+    });
+
+    const text = await res.text();
+    const json = text ? JSON.parse(text) : {};
+
+    if (!res.ok) {
+      throw new Error(cleanErrorMessage(json.error || json.message || 'Request failed'));
+    }
+
+    return (json.data ?? json) as T;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(error.message || 'Unable to reach the API server.');
+    }
+    throw new Error('Unable to reach the API server.');
+  }
 }

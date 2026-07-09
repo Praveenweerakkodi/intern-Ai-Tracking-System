@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<AnalyticsCache | null>(null);
   const [recentApps, setRecentApps] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -29,8 +30,10 @@ export default function DashboardPage() {
 
         setAnalytics(analyticsData);
         setRecentApps(appsData);
+        setApiError(null);
       } catch (e) {
         console.error(e);
+        setApiError(e instanceof Error ? e.message : 'Unable to load dashboard data.');
       } finally {
         setLoading(false);
       }
@@ -69,6 +72,13 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Grid */}
+      {apiError && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-700 dark:text-yellow-300">
+          <p className="font-medium">Unable to reach the backend API.</p>
+          <p className="mt-1">Please start the backend server or update NEXT_PUBLIC_API_URL in your environment.</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat, i) => (
           <motion.div

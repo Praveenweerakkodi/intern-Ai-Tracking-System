@@ -43,8 +43,12 @@ function isOriginAllowed(origin: string | undefined): boolean {
 
 @WebSocketGateway({
   cors: {
-    origin: (origin, callback) => {
-      callback(null, !origin || isOriginAllowed(origin));
+    origin: (origin: string, callback: (err: Error | null, allow?: boolean) => void) => {
+      const frontendUrl = process.env.FRONTEND_URL;
+      if (!origin || origin === 'http://localhost:3000' || (frontendUrl && origin === frontendUrl) || (origin && origin.endsWith('.vercel.app'))) {
+        return callback(null, true);
+      }
+      return callback(new Error(`WS CORS: origin ${origin} not allowed`), false);
     },
     credentials: true,
   },
