@@ -15,7 +15,6 @@
       "@internai/shared": ["../../packages/shared/src"]
     },
     "incremental": true,
-    "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
