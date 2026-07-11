@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI } from '@google/genai';
-import { AnalyzeRequest, AnalyzeResponse } from '@internai/shared';
+import { AnalyzeRequest, AnalyzeResponse } from '../../shared/types';
 
 @Injectable()
 export class AiService {

@@ -10,7 +10,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { AiService } from './ai.service';
-import { AnalyzeRequest } from '@internai/shared';
+import { AnalyzeRequest } from '../../shared/types';
 
 function getAllowedOrigins(): string[] {
   const configuredOrigins = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://nexuscareerai.vercel.app')

@@ -15,7 +15,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { ApplicationsService } from './applications.service';
-import { ApplicationStatus } from '@internai/shared';
+import { ApplicationStatus } from '../../shared/types';
 
 @ApiTags('Applications')
 @ApiBearerAuth()

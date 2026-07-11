@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Inject, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_ADMIN } from '../../supabase/supabase.module';
-import { ApplicationStatus } from '@internai/shared';
+import { ApplicationStatus } from '../../shared/types';
 
 @Injectable()
 export class ApplicationsService {
