@@ -12,6 +12,35 @@ import { Logger } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { AnalyzeRequest } from '../../shared/types';
 
+function getAllowedOrigins(): string[] {
+  const configuredOrigins = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://nexuscareerai.vercel.app')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return [
+    ...configuredOrigins,
+    'https://intern-ai-tracking-system-api.vercel.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+  ];
+}
+
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) {
+    return true;
+  }
+
+  const allowedOrigins = new Set(getAllowedOrigins());
+  if (allowedOrigins.has(origin)) {
+    return true;
+  }
+
+  return /https:\/\/([a-z0-9-]+)\.vercel\.app$/i.test(origin) || /http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+}
+
 @WebSocketGateway({
   cors: {
     origin: (origin: string, callback: (err: Error | null, allow?: boolean) => void) => {
@@ -26,7 +55,7 @@ import { AnalyzeRequest } from '../../shared/types';
   namespace: '/ai',
 })
 export class AiGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() server: Server;
+  @WebSocketServer() server!: Server;
   private readonly logger = new Logger(AiGateway.name);
 
   constructor(private readonly aiService: AiService) {}
