@@ -10,7 +10,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
-import { AnalyzeRequest } from '@internai/shared';
+import { AnalyzeRequest } from '../../shared/types';
 
 @ApiTags('AI')
 @ApiBearerAuth()

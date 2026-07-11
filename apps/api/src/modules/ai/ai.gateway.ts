@@ -10,7 +10,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { AiService } from './ai.service';
-import { AnalyzeRequest } from '@internai/shared';
+import { AnalyzeRequest } from '../../shared/types';
 
 @WebSocketGateway({
   cors: {
