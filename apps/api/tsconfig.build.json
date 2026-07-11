@@ -1,8 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "../..",
+    "outDir": "dist",
+    "rootDir": "src",
     "ignoreDeprecations": "5.0",
     "skipLibCheck": true
   },
@@ -10,10 +10,10 @@
     "node_modules",
     "dist",
     "test",
-    "**/*spec.ts"
+    "**/*spec.ts",
+    "api"
   ],
   "include": [
-    "src/**/*",
-    "../../packages/shared/src/**/*"
+    "src/**/*"
   ]
 }

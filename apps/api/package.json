@@ -6,7 +6,7 @@
     "build": "nest build",
     "dev": "nest start --watch",
     "start": "node dist/main",
-    "start:prod": "node -e \"const fs = require('fs'); const path = fs.existsSync('./dist/app/src/main.js') ? './dist/app/src/main.js' : './dist/main.js'; require(path);\"",
+    "start:prod": "node dist/main.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "type-check": "tsc --noEmit"
   },
