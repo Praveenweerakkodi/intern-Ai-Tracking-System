@@ -3,10 +3,73 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import * as express from 'express';
+import serverless from 'serverless-http';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+// ─── Allowed origins ────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS_STATIC = [
+  'https://nexuscareerai.vercel.app',
+  'https://intern-ai-tracking-system-api.vercel.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
+];
 
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+
+  // Check env-configured origins first
+  const envOrigins = (process.env.FRONTEND_URL || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  if ([...ALLOWED_ORIGINS_STATIC, ...envOrigins].includes(origin)) {
+    return true;
+  }
+
+  // Allow any *.vercel.app or localhost
+  return (
+    /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin) ||
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
+  );
+}
+
+// ─── CORS middleware (pure Express — runs before NestJS routing) ─────────────
+export function corsMiddleware(req: any, res: any, next: any) {
+  const origin = req.headers.origin as string | undefined;
+
+  // Always set CORS headers for allowed origins
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    );
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      (req.headers['access-control-request-headers'] as string) ||
+        'Content-Type,Authorization,X-Requested-With',
+    );
+  }
+
+  // Short-circuit OPTIONS preflight — must NOT reach router or auth guards
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  next();
+}
+
+/**
+ * Shared app configuration helper.
+ * Called by both local bootstrap() and the Vercel serverless adapter.
+ */
+export async function configureApp(app: any) {
   // CORS — allow both local dev and production Vercel frontend
   const allowedOrigins = [
     'http://localhost:3000',
@@ -14,7 +77,7 @@ async function bootstrap() {
   ].filter(Boolean) as string[];
 
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       // Allow requests with no origin (mobile apps, curl, Postman, etc.)
       if (!origin) return callback(null, true);
       if (allowedOrigins.some((o) => origin === o || origin.endsWith('.vercel.app'))) {
@@ -27,7 +90,14 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
-  // Global validation pipe
+  // ① CORS middleware — must be registered FIRST, before anything else
+  app.use(corsMiddleware);
+
+  // ② Body parsers — after CORS so OPTIONS never waits for body parsing
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+  // ③ Validation
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -36,11 +106,7 @@ async function bootstrap() {
     }),
   );
 
-  // Increase payload size for PDF uploads
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ limit: '10mb', extended: true }));
-
-  // Health check endpoint — required by Koyeb to verify the service is running
+  // Health check endpoint
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -55,6 +121,12 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
+}
+
+// Local dev / traditional server bootstrap
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await configureApp(app);
 
   const port = process.env.PORT || 3001;
   // Bind to 0.0.0.0 — required for Koyeb/Docker/containerized environments
@@ -63,4 +135,27 @@ async function bootstrap() {
   console.log(`📚 Swagger docs at http://localhost:${port}/docs`);
 }
 
-bootstrap();
+// ─── Local dev entry point ────────────────────────────────────────────────────
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  (async () => {
+    const app = await NestFactory.create(AppModule, { bodyParser: false });
+    app.use(corsMiddleware);
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ limit: '10mb', extended: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
+    );
+    const config = new DocumentBuilder()
+      .setTitle('Nexus Career Tracker API')
+      .setDescription('AI-powered internship application tracker backend')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+    await app.listen(process.env.PORT || 3001);
+    console.log(`API running on http://localhost:${process.env.PORT || 3001}`);
+  })().catch((err) => {
+    console.error('Failed to start API server', err);
+    process.exit(1);
+  });
+}
